@@ -56,14 +56,15 @@ void *receive_request(void *args) {
     ssize_t bytes_received = recv(new_socket_fd, client_files, sizeof(client_files), 0);
     if (bytes_received <= 0) {
         if (bytes_received == 0) {
-            fprintf(stdout, "Client disconnected.\n");
+           syslog(LOG_INFO, "Client %s disconnected.\n", client_ip);
         } else {
-            perror("Error receiving data from client");
+           syslog(LOG_ERR, "Error receiving data from client %s\n", client_ip);
         }
     } else if (bytes_received > 0) {
         // Calculate the number of files received
         file_count = bytes_received / sizeof(struct File_Info_server);
         printf(" Data (%d) received successfully\n", file_count);
+        syslog(LOG_INFO, "Data (%d) received successfully\n", file_count);
     }
 
     pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER; // Initialize a mutex
@@ -73,7 +74,7 @@ void *receive_request(void *args) {
 
     FILE *log_file = fopen("./file/client_data.txt", "a"); // Open the log file
     if (log_file == NULL) {
-        perror("Error opening file");
+         syslog(LOG_ERR, "Error opening file ./file/client_data.txt");
         return NULL;
     }
     fprintf(log_file, "%s\t%d\n", client_ip, ntohs(client_addr.sin_port)); // Write the client's IP address and port to the log file
@@ -81,7 +82,7 @@ void *receive_request(void *args) {
 
     log_file = fopen("./file/client_data.txt", "a"); // Reopen the log file
     if (log_file == NULL) {
-        perror("Error opening file");
+        syslog(LOG_ERR, "Error opening file ./file/client_data.txt ");
         return NULL;
     }
     // Loop through each file received from the client

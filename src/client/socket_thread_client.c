@@ -12,7 +12,7 @@ void Send_File_Info(int port, char* Ip_server,char *path_directory) {
 
     // Creates a socket
     if ((socket_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) { // Checks if socket creation fails
-        perror("Socket creation failed");
+        syslog(LOG_ERR, "Socket creation failed, %m");
         exit(-1);
     } // Added missing closing parenthesis
 
@@ -22,13 +22,13 @@ void Send_File_Info(int port, char* Ip_server,char *path_directory) {
 
     // Converts the server's IP address from string to binary format
     if (inet_pton(AF_INET, Ip_server, &server_address.sin_addr) <= 0) {
-        perror("Invalid or unsupported IP address");
+        syslog(LOG_ERR, "Invalid or unsupported IP address, %m");
         exit(-2);
     }
 
     // Connects to the server
     if (connect(socket_fd, (struct sockaddr *)&server_address, sizeof(server_address)) < 0) {
-        perror("Connection failed");
+        syslog(LOG_ERR, "Connection failed, %m");
         exit(-3);
     }
 
@@ -41,7 +41,7 @@ void Send_File_Info(int port, char* Ip_server,char *path_directory) {
 
     // Opens the specified directory
     if ((directory = opendir(path_directory)) == NULL) {
-        fprintf(stderr, "Error opening directory: %s\n", path_directory); // Prints an error message
+        syslog(LOG_ERR, "Error opening directory: %s", path_directory); // Prints an error message
         exit(-1); // Exits the program with an error code
     }
 
@@ -64,7 +64,7 @@ void Send_File_Info(int port, char* Ip_server,char *path_directory) {
             client_count++;
             free(full_path);
         } else {
-            fprintf(stderr, "Error getting information of file: %s\n", entry->d_name);
+            syslog(LOG_ERR, "Error getting information of file: %s", entry->d_name);
             continue; // Skips to the next entry
         }
     }
@@ -76,10 +76,11 @@ void Send_File_Info(int port, char* Ip_server,char *path_directory) {
 
     // Sends file_info via the socket
     if(send(socket_fd, file_info, client_count * sizeof(struct File_Info), 0) > 0){
-        fprintf(stdout, " \nDonnées (%d) envoyé avec succès !!!!! \n", client_count);
+        fprintf(stdout, " \nData (%d) sent successfully !!!!! \n", client_count);
+        syslog(LOG_INFO, "Data (%d) sent successfully!", client_count);
     }
     else{
-        perror("Send failed");
+        syslog(LOG_ERR,"Send failed, %m");
         exit(EXIT_FAILURE);
     }
      // Closes the socket
@@ -94,13 +95,13 @@ void Monitoring_directory(int port, char* Ip_server,char *path_directory) {
     int inotify_fd = inotify_init(); // Initializes inotify
 
     if (inotify_fd < 0) {
-        perror("inotify_init");
+        syslog(LOG_ERR, "inotify_init failed");
         exit(EXIT_FAILURE);
     }
 
     int watch_fd = inotify_add_watch(inotify_fd, path_directory, IN_MODIFY | IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO); // Adds a watch to the specified directory
     if (watch_fd < 0) {
-        perror("inotify_add_watch");
+        syslog(LOG_ERR, "inotify_add_watch failed");
         exit(EXIT_FAILURE);
     }
 
@@ -112,7 +113,7 @@ void Monitoring_directory(int port, char* Ip_server,char *path_directory) {
 
         num_bytes = read(inotify_fd, array_event, 1024 * (sizeof(struct inotify_event) + 16)); // Reads inotify events
         if (num_bytes < 0) {
-            perror("read");
+            syslog(LOG_ERR, "read from inotify failed");
             exit(EXIT_FAILURE);
         }
 
@@ -124,6 +125,7 @@ void Monitoring_directory(int port, char* Ip_server,char *path_directory) {
                     if (!send_flag) {
                         Send_File_Info(port, Ip_server,path_directory); // Calls a function to send file information to the server
                         printf("\nThe directory was modified.\n\n"); // Prints a message about directory modification
+                        syslog(LOG_INFO, "The directory was modified.");
                         send_flag = 1; // Set the flag to indicate that Send_File_Info has been called
                     }
 

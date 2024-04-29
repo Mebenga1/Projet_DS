@@ -5,7 +5,7 @@ CLIENT_OBJ= ./build/socket_thread_client.o ./build/socket_thread_client_main.o
 SERVER= ./server
 CLIENT= ./client
 
-all: $(SERVER) $(CLIENT)
+all: $(SERVER) $(CLIENT) log_conf
 
 $(SERVER): $(SERVER_OBJ)
 	$(CC) $(ARGS) -o $(SERVER) $(SERVER_OBJ) -lpthread
@@ -25,7 +25,9 @@ $(CLIENT): $(CLIENT_OBJ)
 ./build/socket_thread_client_main.o: ./src/client/socket_thread_client_main.c ./src/client/socket_thread_client.h
 	$(CC) $(ARGS) -o ./build/socket_thread_client_main.o -c ./src/client/socket_thread_client_main.c -I./src/client/
 
+log_conf:
+	sudo cp ./file/config_logs_files.conf /etc/rsyslog.d/
+	sudo systemctl restart rsyslog
+
 clean:
-	rm -r -f ./build/* && rm -f $(SERVER) $(CLIENT)
-
-
+	rm -r -f ./build/* && rm -f $(SERVER) $(CLIENT) && sudo rm /var/log/client.log && sudo rm /var/log/server.log && sudo systemctl restart rsyslog

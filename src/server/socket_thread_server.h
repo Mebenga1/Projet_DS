@@ -17,6 +17,7 @@
 #include <asm-generic/socket.h> // Generic socket definitions
 #include <time.h> // Header for time functions
 #include <errno.h>
+#include <syslog.h>
 
 // Forward declaration of the File_Info_server structure
 struct File_Info_server;
