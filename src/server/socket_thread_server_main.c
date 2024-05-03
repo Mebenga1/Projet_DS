@@ -3,6 +3,13 @@
 int main(int argc, char *argv[]) {
     openlog("server", LOG_PID | LOG_CONS, LOG_USER);
 
+     // Initialisation of mutex
+    if (pthread_mutex_init(&mutex, NULL) != 0) {
+        perror("Error initializing mutex");
+        syslog(LOG_ERR,"Error initializing mutex");
+        exit(-1);
+    }
+
     int server_fd, new_socket_fd; // File descriptors for the server socket and new socket connections
     struct sockaddr_in address; // Structure for server address information
     int addrlen = sizeof(address); // Length of address structure
@@ -60,21 +67,20 @@ int main(int argc, char *argv[]) {
         printf("New connection from %s with port %d \n\n", client_ip, ntohs(address.sin_port)); // Prints client connection details
         syslog(LOG_INFO, "New connection from %s with port %d", client_ip, ntohs(address.sin_port));
 
-        int *new_socket_ptr = malloc(sizeof(int)); // Allocates memory for new socket descriptor
-        *new_socket_ptr = new_socket_fd; // Assigns the new socket descriptor
+            // Creates a thread to handle the new connection
+            if (pthread_create(&thread_id, NULL, receive_request, &new_socket_fd) < 0) {
+                syslog(LOG_ERR, "Thread creation failed: %m");
+                exit(EXIT_FAILURE);
+            }
 
-        // Creates a thread to handle the new connection
-        if (pthread_create(&thread_id, NULL, receive_request, (void *)new_socket_ptr) < 0) {
-            syslog(LOG_ERR, "Thread creation failed: %m");
-            exit(EXIT_FAILURE);
-        }
-
-        // Waits for the thread to finish before proceeding
-        if (pthread_join(thread_id, NULL) != 0) {
-            syslog(LOG_ERR, "Thread join failed: %m");
-            exit(EXIT_FAILURE);
-        }
+            // detach the thread
+            if (pthread_detach(thread_id) != 0) {
+                syslog(LOG_ERR, "Thread detach failed: %m");
+                exit(EXIT_FAILURE);
+            }
     }
+    close(server_fd); // close socket
+    pthread_mutex_destroy(&mutex); // Destroy the mutex
     closelog();
 
     return 0;

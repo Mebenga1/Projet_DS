@@ -17,13 +17,13 @@ $(SERVER): $(SERVER_OBJ)
 	$(CC) $(ARGS) -o ./build/socket_thread_server_main.o -c ./src/server/socket_thread_server_main.c -I./src/server/ -lpthread
 	
 $(CLIENT): $(CLIENT_OBJ)
-	$(CC) $(ARGS) -o $(CLIENT) $(CLIENT_OBJ) 
+	$(CC) $(ARGS) -o $(CLIENT) $(CLIENT_OBJ) -lpthread
 	
 ./build/socket_thread_client.o: ./src/client/socket_thread_client.c ./src/client/socket_thread_client.h
-	$(CC) $(ARGS) -o ./build/socket_thread_client.o -c ./src/client/socket_thread_client.c -I./src/client/ 
+	$(CC) $(ARGS) -o ./build/socket_thread_client.o -c ./src/client/socket_thread_client.c -I./src/client/  -lpthread
 
 ./build/socket_thread_client_main.o: ./src/client/socket_thread_client_main.c ./src/client/socket_thread_client.h
-	$(CC) $(ARGS) -o ./build/socket_thread_client_main.o -c ./src/client/socket_thread_client_main.c -I./src/client/
+	$(CC) $(ARGS) -o ./build/socket_thread_client_main.o -c ./src/client/socket_thread_client_main.c -I./src/client/ -lpthread
 
 log_conf:
 	sudo cp ./file/config_logs_files.conf /etc/rsyslog.d/

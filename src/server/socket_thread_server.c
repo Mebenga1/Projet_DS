@@ -6,6 +6,8 @@ struct File_Info_server {
     long filesize;
 };
 
+pthread_mutex_t mutex; // declares the mutex
+
 // Function to remove data associated with a specific client IP
 void remove_client_hold_data(char* remove_ip, char* file_name) {
     FILE *original_file = fopen(file_name, "r"); // Open the original file
@@ -39,61 +41,151 @@ void remove_client_hold_data(char* remove_ip, char* file_name) {
     rename("temp.txt", file_name);
 }
 
+// Function to write client information to the file
+void Write_File_Info(struct File_Info_server* client_data, int data_count, char* ip_client, int port) {
+    pthread_mutex_lock(&mutex);
+
+    remove_client_hold_data(ip_client, "./file/client_data.txt"); // Remove the client's old data
+
+    FILE *log_file = fopen("./file/client_data.txt", "a"); // Open the log file
+    if (log_file == NULL) {
+        syslog(LOG_ERR, "Error opening file ./file/client_data.txt");
+        exit(EXIT_FAILURE);
+    }
+    fprintf(log_file, "%s\t%d\n", ip_client, port); // Write the client's IP address and port to the log file
+
+    // Loop through each file received from the client
+    for (int i = 0; i < data_count; i++) {
+        fprintf(log_file, "\t\"%s\"\t%ld bytes\n", client_data[i].filename, client_data[i].filesize); // Write the file name and size to the log file
+        //fprintf(stdout, " %s\t%ld bytes\n", client_data[i].filename, client_data[i].filesize); // Print the file name and size to the console
+    }
+
+    fclose(log_file); // Close the log file
+   // free(client_data);
+
+    pthread_mutex_unlock(&mutex);
+}
+
+
 // Function to handle incoming requests from clients
 void *receive_request(void *args) {
     int new_socket_fd = *(int *)args; // Get the new socket file descriptor
     struct sockaddr_in client_addr; // Structure to hold client address information
-    file client_files[1024]; // Array to hold the client's files
+    file client_files = malloc(1024 * sizeof(struct File_Info_server)); // Array to hold the client's files
+    if (client_files == NULL) {
+        syslog(LOG_ERR, "Error allocating memory");
+        exit(-1);
+    }
+
     int file_count = 0; // Counter for the number of files
 
     socklen_t client_addr_size = sizeof(client_addr); // Get the size of the client address structure
     getpeername(new_socket_fd, (struct sockaddr *)&client_addr, &client_addr_size); // Get the client's address
 
     char client_ip[INET_ADDRSTRLEN]; // Buffer to hold the client's IP address
-    inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN); // Convert the client's IP address to a string
+    inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN); // Convert the client's IP address to a strin
+    int port = ntohs(client_addr.sin_port);
 
     // Receive the entire array from the client at once
-    ssize_t bytes_received = recv(new_socket_fd, client_files, sizeof(client_files), 0);
-    if (bytes_received <= 0) {
-        if (bytes_received == 0) {
-           syslog(LOG_INFO, "Client %s disconnected.\n", client_ip);
+ssize_t bytes_request;
+int id_request;
+
+do {
+    bytes_request = recv(new_socket_fd, &id_request, sizeof(id_request), 0);
+    if (bytes_request <= 0) {
+        if (bytes_request == 0) {
+            syslog(LOG_INFO, "Client %s disconnected.\n", client_ip);
         } else {
-           syslog(LOG_ERR, "Error receiving data from client %s\n", client_ip);
+            syslog(LOG_ERR, "Error receiving data from client %s\n", client_ip);
         }
-    } else if (bytes_received > 0) {
+        break;
+    }
+
+    if (id_request == 1) {
+        int bytes_received = recv(new_socket_fd, client_files, 1024 * sizeof(struct File_Info_server), 0);
+        if (bytes_received <= 0) {
+            if (bytes_received == 0) {
+                syslog(LOG_INFO, "Client %s disconnected.\n", client_ip);
+            } else {
+                syslog(LOG_ERR, "Error receiving data from client %s\n", client_ip);
+            }
+            break;
+        }
+
         // Calculate the number of files received
         file_count = bytes_received / sizeof(struct File_Info_server);
-        printf(" Data (%d) received successfully\n", file_count);
+        printf("Data (%d) received successfully\n", file_count);
         syslog(LOG_INFO, "Data (%d) received successfully\n", file_count);
+
+        Write_File_Info(client_files, file_count, client_ip, port);
+
+        // Clear the client_files array for the next iteration
+        memset(client_files, 0, 1024 * sizeof(struct File_Info_server));
+    } else if (id_request == 2) {
+        extractFileInfo(new_socket_fd);
     }
+} while (id_request != 0);
 
-    pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER; // Initialize a mutex
-    pthread_mutex_lock(&mutex); // Lock the mutex
-
-    remove_client_hold_data(client_ip,"./file/client_data.txt"); // Remove the client's old data
-
-    FILE *log_file = fopen("./file/client_data.txt", "a"); // Open the log file
-    if (log_file == NULL) {
-         syslog(LOG_ERR, "Error opening file ./file/client_data.txt");
-        return NULL;
-    }
-    fprintf(log_file, "%s\t%d\n", client_ip, ntohs(client_addr.sin_port)); // Write the client's IP address and port to the log file
-    fclose(log_file); // Close the log file
-
-    log_file = fopen("./file/client_data.txt", "a"); // Reopen the log file
-    if (log_file == NULL) {
-        syslog(LOG_ERR, "Error opening file ./file/client_data.txt ");
-        return NULL;
-    }
-    // Loop through each file received from the client
-    for(int i = 0; i < file_count; i++) {
-        fprintf(log_file, "\t%s\t%ld bytes\n", client_files[i].filename, client_files[i].filesize); // Write the file name and size to the log file
-        fprintf(stdout, " %s\t%ld bytes\n", client_files[i].filename, client_files[i].filesize); // Print the file name and size to the console
-    }
-    fclose(log_file); // Close the log file
-
-    pthread_mutex_unlock(&mutex); // Unlock the mutex
-    pthread_mutex_destroy(&mutex); // Destroy the mutex
-
+    close(new_socket_fd);
+    free(client_files);
     pthread_exit(NULL); // Exit the thread
+}
+
+
+// Function that retrieves information from files and sends to the client
+void extractFileInfo(int new_socket_fd) {
+
+    pthread_mutex_lock(&mutex);
+
+    // Open the log file for reading
+    FILE* log_file = fopen("./file/client_data.txt", "r");
+    if (log_file == NULL) {
+        syslog(LOG_ERR,"Error opening the file client_data.txt");
+        exit(-1);
+    }
+
+    // Allocate memory for the file_info array
+    struct File_Info_server* file_info = malloc(1024 * sizeof(struct File_Info_server));
+    if (file_info == NULL) {
+        syslog(LOG_ERR, "Error allocating memory");
+        exit(EXIT_FAILURE);
+    }
+
+    int count_file = 0; // Counter for the number of files
+
+    char line[256];
+    while (fgets(line, sizeof(line), log_file)) {
+        if (line[0] == '\t') {
+            char* name = malloc(256 * sizeof(char)); // Allocate memory for file name
+            char* size = malloc(256 * sizeof(char)); // Allocate memory for file size
+
+            if (sscanf(line, "\t\"%[^\"]\"\t%[0-9] bytes", name, size) == 2) {
+                long fileSize = atoi(size); // Convert size to a long integer
+
+                // Copy file name and size to the file_info array
+                strcpy(file_info[count_file].filename, name);
+                file_info[count_file].filesize = fileSize;
+            }
+            count_file++;
+
+            // Free the allocated memory for name and size
+            free(name);
+            free(size);
+        }
+
+    }
+    // Sends file_info  to client via the socket
+    if(send(new_socket_fd, file_info, count_file * sizeof(struct File_Info_server), 0) > 0){
+        fprintf(stdout, " \nData (%d) sent successfully !!!!! \n", count_file);
+        syslog(LOG_INFO, "Data (%d) sent successfully!", count_file);
+    }
+    else{
+        syslog(LOG_ERR,"Send failed");
+        exit(EXIT_FAILURE);
+    }
+    // Close the log file
+    fclose(log_file);
+    // Free the allocated memory for file_info array
+    free(file_info);
+    pthread_mutex_unlock(&mutex);
 }
