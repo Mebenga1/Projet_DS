@@ -1,8 +1,5 @@
 #include "socket_thread_client.h"
 
-#define EVENT_SIZE  (sizeof(struct inotify_event))
-#define BUF_LEN     (1024 * (EVENT_SIZE + 16))
-
 /***** Defines a structure for file information *******/
 struct File_Info {
     char filename[1024];
@@ -56,8 +53,6 @@ File Read_directory(char *path_directory){
     }
     closedir(directory); // Closes the directory stream
 
-    file_infos = realloc(file_infos, client_count * sizeof(struct File_Info));
-
     return file_infos;
 }
 
@@ -78,15 +73,15 @@ void* Send_File_Info(void *args) {
     int socket_fd = *(int *)args;
     File file_info = Read_directory("./data/");
     int file_count = Get_File_Count(file_info);
-        //fprintf(stdout, "\n\n");
 
-    int id_send=1;
-                // Send the file request to the server
-    if(send(socket_fd, &id_send, sizeof(id_send),0) > 0){
-        syslog(LOG_INFO, "sends successful file list request");
+    char *id_send="data";
+
+    // Send the file request to the server
+    if(send(socket_fd, id_send, strlen(id_send),0) > 0){
+        syslog(LOG_INFO, "sends successful data request");
     }
     else{
-        syslog(LOG_ERR, "Failed to send filedl ist request");
+        syslog(LOG_ERR, "Failed to send filed  data request");
     }
 
     // Sends file_info via the socket
@@ -94,93 +89,47 @@ void* Send_File_Info(void *args) {
         //fprintf(stdout, " \nData (%d) sent successfully !!!!! \n", file_count);
         syslog(LOG_INFO, "Data (%d) sent successfully!", file_count);
 
-        for (int i = 0; i < file_count; i++) {
-            fprintf(stdout, " %s, %ld bytes\n", file_info[i].filename, file_info[i].filesize); // Prints file information
-        }
     }
     else{
-        syslog(LOG_ERR,"Send failed, %m");
+        syslog(LOG_ERR,"Sends failed, data");
         exit(EXIT_FAILURE);
     }
 
 /*********************** Monitoring of the directory ******************************************/
-    int fd, wd;
-    char *array_events = malloc(BUF_LEN);
+    syslog(LOG_INFO, "Monitoring directory");
 
-    if (array_events == NULL) {
-        syslog(LOG_ERR,"Error allocating array_events");
-        exit(EXIT_FAILURE);
-    }
-
-    fd = inotify_init();
-    if (fd == -1) {
-        syslog(LOG_ERR,"Error initializing inotify instance");
-        free(array_events);
-        exit(EXIT_FAILURE);
-    }
-
-    wd = inotify_add_watch(fd, "./data/", IN_MODIFY | IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO);
-    if (wd == -1) {
-        syslog(LOG_ERR,"Error adding directory to watch");
-        free(array_events);
-        close(fd);
-        exit(EXIT_FAILURE);
-    }
-
-    printf("\nMonitoring directory:  ./data/\n");
-    syslog(LOG_ERR,"Monitoring directory");
     while (1) {
-        int length, num_events = 0;
+        sleep(3);
 
-        length = read(fd, array_events, BUF_LEN);
-        if (length == -1) {
-            syslog(LOG_ERR,"Error reading inotify events");
-            break;
-        }
+        File file_info_update = Read_directory("./data/");
+        int file_count_update = Get_File_Count(file_info_update);
 
-         File file_info_update = NULL;
+        if (memcmp(file_info, file_info_update, file_count * sizeof(struct File_Info)) != 0) {
 
-        while (num_events < length) {
-            struct inotify_event *event = (struct inotify_event *)&array_events[num_events];
-            // Check if the event has a non-zero length
-            if (event->len) {
-
-                // Check if the event type is create, delete, modify, move from, or move to
-                if ((event->mask & IN_CREATE) || (event->mask & IN_DELETE) || (event->mask & IN_MODIFY) || (event->mask & IN_MOVED_FROM) || (event->mask & IN_MOVED_TO)) {
-
-                        //FILE file_info_update= malloc( 1024 * sizeof(struct File_Info));
-                         file_info_update = Read_directory("./data/");
-                        int file_count_update = Get_File_Count(file_info_update);
-
-                        for (int i = 0; i < file_count_update; i++) {
-                            fprintf(stdout, " %s, %ld bytes\n", file_info_update[i].filename, file_info_update[i].filesize); // Prints file information
-                        }
-
-                        if(send(socket_fd, &id_send, sizeof(id_send),0) > 0){
-                            syslog(LOG_INFO, "sends successful file list request");
-                        }
-                        else{
-                            syslog(LOG_ERR, "Failed to send filedl ist request");
-                        }
-
-                        // Sends file_info via the socket
-                        if(send(socket_fd, file_info_update, file_count_update * sizeof(struct File_Info), 0) > 0){
-                            syslog(LOG_INFO, "Data (%d) update successfully!", file_count_update);
-                        }
-                        else{
-                            syslog(LOG_ERR,"update failed, %m");
-                            exit(EXIT_FAILURE);
-                        }
-
-                }
+            // Send file update request to the server
+            if (send(socket_fd, id_send, strlen(id_send), 0) > 0) {
+                syslog(LOG_INFO, "File update request sent successfully");
+            } else {
+                syslog(LOG_ERR, "Failed to send file update request");
             }
-            // Move to the next event
-            num_events += EVENT_SIZE + event->len;
+
+            // Send file_info_update via the socket
+            if (send(socket_fd, file_info_update, file_count_update * sizeof(struct File_Info), 0) > 0) {
+                syslog(LOG_INFO, "Data (%d) updated successfully!", file_count_update);
+            } else {
+                syslog(LOG_ERR, "Failed to send updated data");
+                exit(EXIT_FAILURE);
+            }
+
+            // Update file_info for the next comparison
+            file_info = realloc(file_info, file_count_update * sizeof(struct File_Info));
+            memcpy(file_info, file_info_update, file_count_update * sizeof(struct File_Info));
+            file_count = file_count_update;
+
+            // Free the memory used by file_info_update
+            free(file_info_update);
         }
     }
-    free(array_events);
-    inotify_rm_watch(fd, wd);
-    close(fd);
     free(file_info);
     pthread_exit(NULL);
 }
@@ -189,15 +138,16 @@ void* Send_File_Info(void *args) {
 /*************** function which displays the list of available files **************/
 void request_list_files(int socket_fd){
 
-     int id_send= 2, count_file=0, bytes_received;
+     char *id_send= "list";
+     int count_file=0, bytes_received;
      File list_files = malloc(1024* sizeof(struct File_Info));
 
     // Send the file request to the server
-     if(send(socket_fd, &id_send, sizeof(int),0) > 0){
+     if(send(socket_fd, id_send,  strlen(id_send),0) > 0){
         syslog(LOG_INFO, "sends successful file list request");
      }
      else{
-        syslog(LOG_ERR, "Failed to send filedl ist request");
+        syslog(LOG_ERR, "Failed to send file list request");
      }
 
     // Receive file content from the server
@@ -225,6 +175,7 @@ void request_list_files(int socket_fd){
 /***************************** MENU ****************************/
 void printMenu(int socket_fd, char *path_directory) {
     int choice;
+    int validChoice = 0;
 
     pthread_t thread_send;
 
@@ -235,20 +186,28 @@ void printMenu(int socket_fd, char *path_directory) {
         printf("3. Quit\n");
         printf("Your choice: ");
 
-        scanf("%d", &choice);
+        do {
+            if (scanf("%d", &choice) != 1 || choice < 1 || choice > 3) {
+                printf("Invalid choice. Please choose a positive integer between 1 and 3: ");
+                while (getchar() != '\n');  // Clear input buffer
+            } else {
+                validChoice = 1;
+            }
+        } while (!validChoice);
+
         switch (choice) {
             case 1:
                 if (pthread_create(&thread_send, NULL, Send_File_Info, &socket_fd) < 0) {
-                syslog(LOG_ERR, "Thread creation failed: %m");
-                exit(EXIT_FAILURE);
+                    syslog(LOG_ERR, "Thread creation failed");
+                    exit(EXIT_FAILURE);
                 }
 
                 // detach the thread
                 if (pthread_detach(thread_send) != 0) {
-                    syslog(LOG_ERR, "Thread detach failed: %m");
+                    syslog(LOG_ERR, "Thread detach failed");
                     exit(EXIT_FAILURE);
                 }
-                //Send_File_Info(socket_fd, path_directory);
+
                 break;
             case 2:
                 request_list_files(socket_fd);

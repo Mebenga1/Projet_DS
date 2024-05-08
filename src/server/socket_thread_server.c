@@ -56,12 +56,13 @@ void Write_File_Info(struct File_Info_server* client_data, int data_count, char*
 
     // Loop through each file received from the client
     for (int i = 0; i < data_count; i++) {
-        fprintf(log_file, "\t\"%s\"\t%ld bytes\n", client_data[i].filename, client_data[i].filesize); // Write the file name and size to the log file
+        // Write the file name and size to the log file
         //fprintf(stdout, " %s\t%ld bytes\n", client_data[i].filename, client_data[i].filesize); // Print the file name and size to the console
+        fprintf(log_file, "\t\"%s\"\t%ld bytes\n", client_data[i].filename, client_data[i].filesize);
     }
 
     fclose(log_file); // Close the log file
-   // free(client_data);
+
 
     pthread_mutex_unlock(&mutex);
 }
@@ -87,44 +88,43 @@ void *receive_request(void *args) {
     int port = ntohs(client_addr.sin_port);
 
     // Receive the entire array from the client at once
-ssize_t bytes_request;
-int id_request;
+    ssize_t bytes_request;
+    char id_request[8]={0};
 
-do {
-    bytes_request = recv(new_socket_fd, &id_request, sizeof(id_request), 0);
-    if (bytes_request <= 0) {
-        if (bytes_request == 0) {
-            syslog(LOG_INFO, "Client %s disconnected.\n", client_ip);
-        } else {
+    do {
+        bytes_request = recv(new_socket_fd, id_request, 8, 0);
+
+        if (bytes_request == -1) {
             syslog(LOG_ERR, "Error receiving data from client %s\n", client_ip);
-        }
-        break;
-    }
-
-    if (id_request == 1) {
-        int bytes_received = recv(new_socket_fd, client_files, 1024 * sizeof(struct File_Info_server), 0);
-        if (bytes_received <= 0) {
-            if (bytes_received == 0) {
-                syslog(LOG_INFO, "Client %s disconnected.\n", client_ip);
-            } else {
-                syslog(LOG_ERR, "Error receiving data from client %s\n", client_ip);
-            }
+            break;
+        } else if (bytes_request == 0) {
+            syslog(LOG_INFO, "Client %s disconnected.\n", client_ip);
             break;
         }
 
-        // Calculate the number of files received
-        file_count = bytes_received / sizeof(struct File_Info_server);
-        printf("Data (%d) received successfully\n", file_count);
-        syslog(LOG_INFO, "Data (%d) received successfully\n", file_count);
+        //printf("id = %s\n", id_request);
 
-        Write_File_Info(client_files, file_count, client_ip, port);
+            if ((strcmp(id_request, "list")) != 0) {
+                int bytes_received = recv(new_socket_fd, client_files, 1024 * sizeof(struct File_Info_server), 0);
+                if (bytes_received <= 0) {
+                    syslog(LOG_ERR, "Error receiving data from client %s\n", client_ip);
+                    break;
+                }
 
-        // Clear the client_files array for the next iteration
-        memset(client_files, 0, 1024 * sizeof(struct File_Info_server));
-    } else if (id_request == 2) {
-        extractFileInfo(new_socket_fd);
-    }
-} while (id_request != 0);
+                file_count = bytes_received / sizeof(struct File_Info_server);
+                printf("Data (%d) received successfully\n", file_count);
+                syslog(LOG_INFO, "Data (%d) received successfully\n", file_count);
+
+                Write_File_Info(client_files, file_count, client_ip, port);
+
+                memset(client_files, 0, 1024 * sizeof(struct File_Info_server));
+            } else if ((strcmp(id_request, "list")) == 0) {
+                extractFileInfo(new_socket_fd);
+            }
+
+            memset(id_request,0, sizeof(id_request));
+    } while (bytes_request !=0);
+
 
     close(new_socket_fd);
     free(client_files);
@@ -181,7 +181,6 @@ void extractFileInfo(int new_socket_fd) {
     }
     else{
         syslog(LOG_ERR,"Send failed");
-        exit(EXIT_FAILURE);
     }
     // Close the log file
     fclose(log_file);
